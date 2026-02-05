@@ -1,6 +1,5 @@
 
 
-```md
 # OCR Screen Translator (EN → FR)
 
 This tool allows you to translate **non-selectable text directly from your screen** (web novels, locked websites, images, PDFs, applications).
@@ -80,5 +79,5 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "C:\
 * Temporary screenshots are automatically deleted.
 * Designed for text that cannot be copied or selected.
 
-```
+
 
