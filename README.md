@@ -14,7 +14,7 @@ Download: https://www.python.org/downloads/windows/
 Make sure **“Add Python to PATH”** is checked during installation.
 
 
-### Tesseract OCR (Required)
+## Tesseract OCR (Required)
 
 Install Tesseract from the official Windows build:  
 https://github.com/UB-Mannheim/tesseract/wiki
@@ -32,7 +32,7 @@ TESSERACT_PATH = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 ````
 
 
-### Python Dependencies
+## Python Dependencies
 
 Create and activate a virtual environment:
 
@@ -46,8 +46,6 @@ Install dependencies:
 ```powershell
 pip install pillow pytesseract requests mss pynput customtkinter
 ```
-
----
 
 ## Running the Tool
 
@@ -66,7 +64,6 @@ You can create a Windows shortcut pointing to:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "C:\Path\To\Project\run.ps1"
 ```
 
----
 
 ## Notes
 
