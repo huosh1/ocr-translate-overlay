@@ -1,12 +1,10 @@
 
-
 # OCR Screen Translator (EN → FR)
 
 This tool allows you to translate **non-selectable text directly from your screen** (web novels, locked websites, images, PDFs, applications).
 
 It works by letting you draw a rectangular selection on the screen, performing **OCR in English**, then displaying the **French translation** in a floating overlay.
 
----
 
 ## Requirements (Windows)
 
@@ -15,7 +13,6 @@ It works by letting you draw a rectangular selection on the screen, performing *
 Download: https://www.python.org/downloads/windows/  
 Make sure **“Add Python to PATH”** is checked during installation.
 
----
 
 ### Tesseract OCR (Required)
 
@@ -34,7 +31,6 @@ If your installation path is different, update it in the script:
 TESSERACT_PATH = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 ````
 
----
 
 ### Python Dependencies
 
