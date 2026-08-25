@@ -18,8 +18,15 @@ Launch it and pick your languages — which one to read, which one to translate
 into. It remembers your last choice.
 
 Languages whose OCR model is not installed yet are listed too, marked as such;
-picking one downloads its model (a few MB) and then starts. Nothing to install
-by hand, and nothing hidden from you either.
+picking one downloads its model with a progress bar and then starts. Nothing to
+install by hand, and nothing hidden from you either.
+
+**Grammar analysis is a checkbox, off by default.** It only becomes available
+for a language that has an analyser — Korean today. It is worth knowing why it
+is opt-in: the panel looks up every word separately, so a sentence costs as many
+API calls as it has words. That is slow, it burns through the daily translation
+quota, and on imperfect OCR it returns noise for words that were never really
+there.
 
 Then hold **`Ctrl` + `Alt`**. The first corner of the selection is anchored
 wherever the mouse cursor happens to be. Keep holding, move the mouse — the
@@ -150,9 +157,17 @@ Knowing which models exist — and fetching the missing one before starting —
 removes that trap instead of reporting it after the fact.
 
 **Nothing appears after a selection** — the OCR returned nothing, usually on text
-that is too small or too low-contrast. Try a tighter rectangle. Note too that
-translation uses the public MyMemory API, which is rate-limited for anonymous
-use.
+that is too small or too low-contrast. Try a tighter rectangle.
+
+**"Quota MyMemory épuisé"** — the free tier allows a few thousand characters a
+day per IP. Setting a `MYMEMORY_EMAIL` environment variable doubles it; the
+address is sent to MyMemory only when that variable is defined. Leaving grammar
+analysis off also helps a great deal, since it spends one lookup per word.
+
+Long passages are split into chunks before being sent. MyMemory rejects anything
+over 500 characters, and — this is the trap — it answers `200 OK` with the error
+message sitting in the translation field, so an unsplit paragraph came back as
+uppercase gibberish rather than as a failure.
 
 ## Notes
 

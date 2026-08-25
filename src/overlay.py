@@ -122,9 +122,13 @@ def available_ocr_languages():
 class Session:
     """Couple de langues choisi au démarrage."""
 
-    def __init__(self, source="eng", target="en"):
+    def __init__(self, source="eng", target="en", grammar=False):
         self.source = source
         self.target = target
+        # Décochée par défaut : l'analyse traduit chaque mot séparément, donc
+        # autant d'appels à l'API que de mots. C'est lent, ça épuise le quota
+        # journalier, et sur un OCR approximatif ça ne renvoie que du bruit.
+        self.grammar = grammar
 
     @property
     def ocr_lang(self):
@@ -144,7 +148,9 @@ class Session:
 
     @property
     def has_grammar(self):
-        return self.source in GRAMMAR_LANGUAGES and KONLPY_AVAILABLE
+        return (self.grammar
+                and self.source in GRAMMAR_LANGUAGES
+                and KONLPY_AVAILABLE)
 
     def label(self):
         source = LANGUAGES.get(self.source, (self.source, ""))[0]
@@ -286,22 +292,76 @@ class LRUCache:
 TRANSLATE_CACHE = LRUCache(max_items=4000)
 
 
+# MyMemory refuse les requetes au-dela de 500 caracteres. Le piege est qu'elle
+# ne renvoie pas une erreur HTTP : elle repond 200 en placant son message
+# d'erreur DANS le champ de traduction. Sans controle, ce message s'affiche a la
+# place du texte traduit — un paragraphe un peu long ressortait donc en
+# charabia anglais majuscule. Meme mecanisme quand le quota du jour est epuise.
+MYMEMORY_MAX_CHARS = 450
+
+# Fins de phrase, latines et est-asiatiques.
+_SENTENCE_END = "。．.！!？?…\n"
+
+
+def _split_for_translation(text: str, limit: int = MYMEMORY_MAX_CHARS) -> list:
+    """Decoupe en morceaux traduisibles, sur une fin de phrase quand possible."""
+    chunks = []
+    rest = text
+    while len(rest) > limit:
+        window = rest[:limit]
+        cut = max(window.rfind(ch) for ch in _SENTENCE_END)
+        if cut < limit // 3:
+            cut = window.rfind(" ")      # pas de ponctuation : on coupe aux mots
+        if cut < limit // 3:
+            cut = limit - 1              # ni l'un ni l'autre : coupe franche
+        chunks.append(rest[:cut + 1].strip())
+        rest = rest[cut + 1:].lstrip()
+    if rest.strip():
+        chunks.append(rest.strip())
+    return chunks
+
+
+def _translate_chunk(chunk: str) -> str:
+    cached = TRANSLATE_CACHE.get(chunk)
+    if cached is not None:
+        return cached
+
+    params = {"q": chunk, "langpair": SESSION.langpair}
+    # MyMemory double le quota journalier pour une requete signee d'une adresse
+    # e-mail. Rien n'est envoye tant que la variable n'est pas definie.
+    email = os.environ.get("MYMEMORY_EMAIL")
+    if email:
+        params["de"] = email
+
+    r = requests.get("https://api.mymemory.translated.net/get",
+                     params=params, timeout=20)
+    r.raise_for_status()
+    payload = r.json()
+    out = cleanup((payload.get("responseData") or {}).get("translatedText") or "")
+
+    status = payload.get("responseStatus")
+    if status not in (200, "200"):
+        detail = payload.get("responseDetails") or out or "réponse illisible"
+        raise RuntimeError("MyMemory a refusé la requête : %s" % detail)
+
+    # Le quota epuise arrive avec un statut 200 et l'avertissement en guise de
+    # traduction : il faut le reconnaitre au contenu.
+    upper = out.upper()
+    if upper.startswith("MYMEMORY WARNING") or "ALL AVAILABLE FREE TRANSLATIONS" in upper:
+        raise RuntimeError(
+            "Quota MyMemory épuisé pour aujourd'hui. Il se réinitialise sous 24 h ; "
+            "définir la variable d'environnement MYMEMORY_EMAIL le double.")
+
+    TRANSLATE_CACHE.set(chunk, out)
+    return out
+
+
 def translate_mymemory(text: str) -> str:
     text = cleanup(text)
     if not text:
         return ""
-    cached = TRANSLATE_CACHE.get(text)
-    if cached is not None:
-        return cached
-    r = requests.get(
-        "https://api.mymemory.translated.net/get",
-        params={"q": text, "langpair": SESSION.langpair},
-        timeout=20,
-    )
-    r.raise_for_status()
-    out = cleanup(r.json()["responseData"]["translatedText"])
-    TRANSLATE_CACHE.set(text, out)
-    return out
+    return " ".join(_translate_chunk(chunk)
+                    for chunk in _split_for_translation(text) if chunk)
 
 
 # ======================
@@ -761,16 +821,45 @@ def ask_languages():
     dst_box.grid(row=3, column=1, sticky="ew", padx=(14, 0), pady=4)
     dst_box.current(next((i for i, (_, c) in enumerate(targets) if c == target), 0))
 
+    # Option, décochée par défaut : l'analyse traduit chaque mot séparément,
+    # donc autant d'appels à l'API que de mots dans la phrase. C'est ce qui
+    # rendait l'outil lent, et sur un OCR approximatif ça ne produit que du
+    # bruit. Elle ne s'active que pour une langue qui a un analyseur.
+    grammar_var = tk.BooleanVar(value=(panels.load_setting("grammar") == "1"))
+    grammar_box = tk.Checkbutton(
+        frame, text="Grammar analysis  (slower: one lookup per word)",
+        variable=grammar_var, bg=panels.PAPER_HEX, fg=panels.TEXT,
+        activebackground=panels.PAPER_HEX, selectcolor=panels.PAPER_HEX,
+        font=(panels.UI_FACE, 9), anchor="w", highlightthickness=0, bd=0)
+    grammar_box.grid(row=4, column=0, columnspan=2, sticky="w", pady=(12, 0))
+
+    # Barre d'installation, montrée seulement pendant un téléchargement. Sur une
+    # bonne connexion un modèle passe en quelques secondes : sans elle, l'écran
+    # ne montrait qu'un texte qui clignote, et l'application semblait démarrer
+    # sans rien avoir installé.
+    bar = ttk.Progressbar(frame, mode="determinate", maximum=1000, length=260)
+    bar.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(14, 0))
+    bar.grid_remove()
+
     start_btn = tk.Button(frame, text="Start", relief="flat",
                           bg="#e0d3bc", fg=panels.TEXT, activebackground="#d5c6ae",
                           font=(panels.UI_FACE, 10), padx=18, pady=6)
-    start_btn.grid(row=4, column=0, columnspan=2, sticky="e", pady=(18, 0))
+    start_btn.grid(row=6, column=0, columnspan=2, sticky="e", pady=(18, 0))
 
     def refresh_hint(_event=None):
         code = codes[src_box.current()]
+
+        # La case ne vaut que pour une langue qu'on sait analyser : on la grise
+        # ailleurs plutôt que de la masquer, pour que son existence se voie.
+        can_analyse = code in GRAMMAR_LANGUAGES and KONLPY_AVAILABLE
+        grammar_box.configure(state="normal" if can_analyse else "disabled",
+                              fg=panels.TEXT if can_analyse else panels.FAINT)
+        if not can_analyse:
+            grammar_var.set(False)
+
         if code not in installed:
             hint.configure(text="Model not installed — it will be downloaded (a few MB).")
-        elif code in GRAMMAR_LANGUAGES and KONLPY_AVAILABLE:
+        elif can_analyse:
             hint.configure(text="Grammar analysis available for this language.")
         elif code in GRAMMAR_LANGUAGES:
             hint.configure(text="Grammar analysis unavailable: konlpy or Java missing.")
@@ -785,6 +874,7 @@ def ask_languages():
     def finish(code):
         result["source"] = code
         result["target"] = targets[dst_box.current()][1]
+        result["grammar"] = bool(grammar_var.get())
         root.destroy()
 
     def install_then_finish(code):
@@ -802,32 +892,66 @@ def ask_languages():
                 os.path.join(tesseract_setup.LOCAL_TESSDATA, "eng.traineddata")):
             needed.append("eng")
 
-        def report(text):
-            root.after(0, lambda: hint.configure(text=text))
+        def report(text, fraction=None):
+            def apply():
+                hint.configure(text=text)
+                if fraction is not None:
+                    bar["value"] = max(0, min(1000, int(fraction * 1000)))
+            root.after(0, apply)
+
+        # Le rappel de progression arrive tous les 64 Ko : sur 14 Mo cela ferait
+        # deux cents replanifications Tk. On ne rafraîchit que par pas de 1 %.
+        state = {"step": -1}
 
         def work():
             try:
-                for lang in needed:
+                for index, lang in enumerate(needed):
                     name = LANGUAGES.get(lang, (lang, ""))[0]
+                    prefix = ""
+                    if len(needed) > 1:
+                        prefix = "(%d/%d) " % (index + 1, len(needed))
 
-                    def progress(done, total, name=name):
+                    def progress(done, total, name=name, prefix=prefix, index=index):
+                        share = 1.0 / len(needed)
                         if total:
-                            report("Downloading %s: %.1f / %.1f MB"
-                                   % (name, done / 1048576.0, total / 1048576.0))
+                            step = int(done * 100 / total)
+                            if step == state["step"]:
+                                return
+                            state["step"] = step
+                            report("%sDownloading %s — %.1f of %.1f MB"
+                                   % (prefix, name, done / 1048576.0, total / 1048576.0),
+                                   index * share + share * done / float(total))
                         else:
-                            report("Downloading %s: %.1f MB" % (name, done / 1048576.0))
+                            report("%sDownloading %s — %.1f MB"
+                                   % (prefix, name, done / 1048576.0))
 
+                    report("%sStarting download of %s…" % (prefix, name),
+                           index / float(len(needed)))
+                    state["step"] = -1
                     tesseract_setup.download_language(lang, progress)
             except Exception as exc:
-                report("Download failed: %s" % exc)
-                root.after(0, lambda: start_btn.configure(state="normal"))
+                report("Download failed: %s" % exc, 0)
+                root.after(0, restore)
                 return
 
             os.environ["TESSDATA_PREFIX"] = tesseract_setup.LOCAL_TESSDATA
             del _ocr_langs_cache[:]
-            root.after(0, lambda: finish(code))
+            report("Installed. Starting…", 1.0)
+            # Une pause courte, sinon la barre atteint 100 % et disparaît dans
+            # la même image : on ne voit jamais qu'elle a abouti.
+            root.after(450, lambda: finish(code))
+
+        def restore():
+            start_btn.configure(state="normal")
+            src_box.configure(state="readonly")
+            dst_box.configure(state="readonly")
+            bar.grid_remove()
 
         start_btn.configure(state="disabled")
+        src_box.configure(state="disabled")
+        dst_box.configure(state="disabled")
+        bar["value"] = 0
+        bar.grid()
         threading.Thread(target=work, daemon=True).start()
 
     def start(_event=None):
@@ -851,7 +975,8 @@ def ask_languages():
     if not result:
         return None
     panels.save_setting("languages", "%s>%s" % (result["source"], result["target"]))
-    return result["source"], result["target"]
+    panels.save_setting("grammar", "1" if result["grammar"] else "0")
+    return result["source"], result["target"], result["grammar"]
 
 
 if __name__ == "__main__":
@@ -859,7 +984,7 @@ if __name__ == "__main__":
     if choice is None:
         raise SystemExit(0)
 
-    SESSION.source, SESSION.target = choice
+    SESSION.source, SESSION.target, SESSION.grammar = choice
     print("Session : %s   (OCR : %s)" % (SESSION.label(), SESSION.ocr_lang))
 
     try:
