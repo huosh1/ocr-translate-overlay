@@ -277,10 +277,18 @@ def save_geometry(key, geometry):
             pass
 
 
-# Le magasin est un simple dictionnaire JSON : les préférences y logent aussi
-# bien que les géométries, une clé par réglage.
-load_setting = load_geometry
-save_setting = save_geometry
+# Les préférences partagent ce magasin avec les géométries, mais dans un espace
+# de noms distinct. Sans le préfixe, la préférence "grammar" et la géométrie du
+# panneau GRAMMAR occupaient la même clé et s'écrasaient l'une l'autre.
+_PREF_PREFIX = "pref:"
+
+
+def load_setting(key):
+    return load_geometry(_PREF_PREFIX + key)
+
+
+def save_setting(key, value):
+    save_geometry(_PREF_PREFIX + key, value)
 
 
 # ======================

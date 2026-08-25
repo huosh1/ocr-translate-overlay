@@ -122,9 +122,12 @@ def available_ocr_languages():
 class Session:
     """Couple de langues choisi au démarrage."""
 
-    def __init__(self, source="eng", target="en", grammar=False):
+    def __init__(self, source="eng", target="en", grammar=False, email=""):
         self.source = source
         self.target = target
+        # Adresse facultative envoyée à MyMemory, qui double alors le quota
+        # journalier. Vide tant que l'utilisateur n'en saisit pas une.
+        self.email = email
         # Décochée par défaut : l'analyse traduit chaque mot séparément, donc
         # autant d'appels à l'API que de mots. C'est lent, ça épuise le quota
         # journalier, et sur un OCR approximatif ça ne renvoie que du bruit.
@@ -160,6 +163,34 @@ class Session:
 
 
 SESSION = Session()
+
+
+# ======================
+# INSTANCE UNIQUE
+# ======================
+# Chaque instance écoute Ctrl+Alt globalement. Deux instances lancées, et une
+# seule sélection déclenche deux captures, deux séries d'appels à l'API et deux
+# jeux de panneaux — avec les réglages de leur propre démarrage, donc une
+# ancienne instance peut rouvrir un panneau qu'on vient de désactiver. Comme
+# l'outil se lance par pythonw.exe, sans fenêtre de console, rien ne signale
+# qu'il tourne déjà : elles s'accumulent sans qu'on s'en rende compte.
+_instance_handle = None
+
+
+def acquire_single_instance(name="OcrTranslateOverlay.Mutex"):
+    """Renvoie False si l'outil tourne déjà."""
+    global _instance_handle
+    try:
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.CreateMutexW(None, False, name)
+        ERROR_ALREADY_EXISTS = 183
+        if not handle or kernel32.GetLastError() == ERROR_ALREADY_EXISTS:
+            return False
+        # Gardé en référence : refermé, le mutex libérerait le verrou.
+        _instance_handle = handle
+        return True
+    except Exception:
+        return True   # hors Windows : on ne bloque personne
 
 
 # ======================
@@ -328,8 +359,9 @@ def _translate_chunk(chunk: str) -> str:
 
     params = {"q": chunk, "langpair": SESSION.langpair}
     # MyMemory double le quota journalier pour une requete signee d'une adresse
-    # e-mail. Rien n'est envoye tant que la variable n'est pas definie.
-    email = os.environ.get("MYMEMORY_EMAIL")
+    # e-mail. Saisie dans le selecteur de langues, ou a defaut variable
+    # d'environnement. Rien n'est envoye tant que l'une des deux n'est remplie.
+    email = SESSION.email or os.environ.get("MYMEMORY_EMAIL")
     if email:
         params["de"] = email
 
@@ -833,18 +865,34 @@ def ask_languages():
         font=(panels.UI_FACE, 9), anchor="w", highlightthickness=0, bd=0)
     grammar_box.grid(row=4, column=0, columnspan=2, sticky="w", pady=(12, 0))
 
+    # MyMemory double le quota journalier pour une requête signée d'une adresse
+    # e-mail. Le champ est facultatif et vide par défaut : l'adresse part vers
+    # MyMemory à chaque traduction, c'est donc à l'utilisateur de la donner, pas
+    # au programme de la deviner.
+    tk.Label(frame, text="Email", bg=panels.PAPER_HEX, fg=panels.MUTED,
+             font=(panels.UI_FACE, 10)).grid(row=5, column=0, sticky="w", pady=(14, 0))
+    email_entry = tk.Entry(frame, width=36, relief="flat", bd=6,
+                           bg="#e9dfce", fg=panels.TEXT,
+                           insertbackground=panels.TEXT,
+                           font=(panels.UI_FACE, 10))
+    email_entry.grid(row=5, column=1, sticky="ew", padx=(14, 0), pady=(14, 0))
+    email_entry.insert(0, panels.load_setting("email") or "")
+    tk.Label(frame, text="optional — doubles the free daily translation quota",
+             bg=panels.PAPER_HEX, fg=panels.FAINT,
+             font=(panels.UI_FACE, 8)).grid(row=6, column=1, sticky="w", padx=(14, 0))
+
     # Barre d'installation, montrée seulement pendant un téléchargement. Sur une
     # bonne connexion un modèle passe en quelques secondes : sans elle, l'écran
     # ne montrait qu'un texte qui clignote, et l'application semblait démarrer
     # sans rien avoir installé.
     bar = ttk.Progressbar(frame, mode="determinate", maximum=1000, length=260)
-    bar.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(14, 0))
+    bar.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(14, 0))
     bar.grid_remove()
 
     start_btn = tk.Button(frame, text="Start", relief="flat",
                           bg="#e0d3bc", fg=panels.TEXT, activebackground="#d5c6ae",
                           font=(panels.UI_FACE, 10), padx=18, pady=6)
-    start_btn.grid(row=6, column=0, columnspan=2, sticky="e", pady=(18, 0))
+    start_btn.grid(row=8, column=0, columnspan=2, sticky="e", pady=(18, 0))
 
     def refresh_hint(_event=None):
         code = codes[src_box.current()]
@@ -875,6 +923,7 @@ def ask_languages():
         result["source"] = code
         result["target"] = targets[dst_box.current()][1]
         result["grammar"] = bool(grammar_var.get())
+        result["email"] = email_entry.get().strip()
         root.destroy()
 
     def install_then_finish(code):
@@ -976,15 +1025,26 @@ def ask_languages():
         return None
     panels.save_setting("languages", "%s>%s" % (result["source"], result["target"]))
     panels.save_setting("grammar", "1" if result["grammar"] else "0")
-    return result["source"], result["target"], result["grammar"]
+    panels.save_setting("email", result["email"])
+    return result["source"], result["target"], result["grammar"], result["email"]
 
 
 if __name__ == "__main__":
+    if not acquire_single_instance():
+        warning = tk.Tk()
+        warning.withdraw()
+        messagebox.showinfo(
+            "OCR Screen Translator",
+            "The tool is already running.\n\n"
+            "Press F8 in the running instance to quit it, then start again.")
+        warning.destroy()
+        raise SystemExit(0)
+
     choice = ask_languages()
     if choice is None:
         raise SystemExit(0)
 
-    SESSION.source, SESSION.target, SESSION.grammar = choice
+    SESSION.source, SESSION.target, SESSION.grammar, SESSION.email = choice
     print("Session : %s   (OCR : %s)" % (SESSION.label(), SESSION.ocr_lang))
 
     try:
