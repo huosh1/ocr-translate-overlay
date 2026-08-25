@@ -25,7 +25,9 @@ Dépendances : pip install -r requirements.txt
 Installation complète, Tesseract compris : scripts/install_windows.bat
 """
 
+import atexit
 import os
+import subprocess
 import time
 import threading
 import ctypes
@@ -176,10 +178,57 @@ SESSION = Session()
 # qu'il tourne déjà : elles s'accumulent sans qu'on s'en rende compte.
 _instance_handle = None
 
+INSTANCE_DIR = os.path.join(
+    os.environ.get("APPDATA") or os.path.expanduser("~"), "ocr-translate-overlay")
+PID_FILE = os.path.join(INSTANCE_DIR, "instance.pid")
+
+
+def _write_pid():
+    """Le mutex dit qu'une instance existe, pas laquelle. Le fichier de PID
+    permet de la désigner, et donc de proposer de la fermer."""
+    try:
+        os.makedirs(INSTANCE_DIR, exist_ok=True)
+        with open(PID_FILE, "w", encoding="utf-8") as f:
+            f.write(str(os.getpid()))
+    except Exception:
+        pass
+
+
+def _clear_pid():
+    try:
+        os.remove(PID_FILE)
+    except Exception:
+        pass
+
+
+def running_instance_pid():
+    try:
+        with open(PID_FILE, encoding="utf-8") as f:
+            pid = int(f.read().strip())
+        return pid if pid != os.getpid() else None
+    except Exception:
+        return None
+
+
+def terminate_instance(pid):
+    """Ferme l'instance restée en place. Renvoie True si elle a disparu."""
+    try:
+        subprocess.run(["taskkill", "/PID", str(pid), "/F"],
+                       capture_output=True, timeout=10)
+    except Exception:
+        return False
+    for _ in range(20):
+        time.sleep(0.25)
+        if acquire_single_instance():
+            return True
+    return False
+
 
 def acquire_single_instance(name="OcrTranslateOverlay.Mutex"):
     """Renvoie False si l'outil tourne déjà."""
     global _instance_handle
+    if _instance_handle is not None:
+        return True
     try:
         kernel32 = ctypes.windll.kernel32
         handle = kernel32.CreateMutexW(None, False, name)
@@ -188,6 +237,8 @@ def acquire_single_instance(name="OcrTranslateOverlay.Mutex"):
             return False
         # Gardé en référence : refermé, le mutex libérerait le verrou.
         _instance_handle = handle
+        _write_pid()
+        atexit.register(_clear_pid)
         return True
     except Exception:
         return True   # hors Windows : on ne bloque personne
@@ -557,8 +608,11 @@ class App:
         self.translation_overlay = None
         self.grammar_overlay = None
 
-        # Pré-charger Okt en arrière-plan (évite le délai au premier usage)
-        if KONLPY_AVAILABLE:
+        # Pré-charger Okt en arrière-plan évite le délai au premier usage, mais
+        # démarre une JVM de plusieurs centaines de mégaoctets. On ne le fait
+        # donc que si l'analyse est réellement demandée : sans la case cochée,
+        # c'était de la mémoire et un temps de démarrage dépensés pour rien.
+        if SESSION.has_grammar:
             threading.Thread(target=get_okt, daemon=True).start()
 
         self.k_listener = keyboard.Listener(on_press=self.on_key_press, on_release=self.on_key_release)
@@ -569,11 +623,36 @@ class App:
         self.m_listener.start()
         self.root.protocol("WM_DELETE_WINDOW", self.quit)
         self.root.mainloop()
+        # La boucle est sortie : on ne laisse aucun écouteur derrière, puis on
+        # tranche. Voir quit() : la JVM de KoNLPy empêche une sortie normale.
+        self._stop_listeners()
+        os._exit(0)
+
+    def _stop_listeners(self):
+        for listener in (self.k_listener, self.m_listener):
+            try:
+                listener.stop()
+            except Exception:
+                pass
 
     def quit(self):
+        """Fermeture complète, forcée si nécessaire.
+
+        Le point important, mesuré : fermer la fenêtre ne suffisait pas à
+        terminer le processus. KoNLPy passe par JPype, qui démarre une JVM dont
+        les threads ne sont pas des démons ; une fois Okt chargé, Python ne peut
+        plus sortir même après l'arrêt de Tk. La boucle se terminait bien, le
+        processus restait — quelques centaines de mégaoctets chacun, invisibles
+        puisque lancés par pythonw.exe, sans console. C'est ainsi qu'une douzaine
+        d'instances se sont accumulées, toutes à l'écoute de Ctrl+Alt.
+
+        On sort donc par os._exit, qui n'attend aucun thread. Il n'y a rien à
+        préserver ici : les réglages sont déjà écrits sur disque au moment où
+        l'utilisateur les change.
+        """
+        self._stop_listeners()
         try:
-            self.k_listener.stop()
-            self.m_listener.stop()
+            self.root.quit()        # fait sortir mainloop
         except Exception:
             pass
         try:
@@ -602,7 +681,9 @@ class App:
         elif key in (keyboard.Key.alt_l, keyboard.Key.alt_r):
             self.alt_down = True
         elif key == keyboard.Key.f8:
-            self.quit()
+            # On arrive ici depuis le thread de pynput : la fermeture doit
+            # repasser par la boucle Tk, sinon destroy() échoue en silence.
+            self.root.after(0, self.quit)
             return
         elif key == keyboard.Key.esc:
             self.root.after(0, self._close_overlays)
@@ -1031,14 +1112,26 @@ def ask_languages():
 
 if __name__ == "__main__":
     if not acquire_single_instance():
-        warning = tk.Tk()
-        warning.withdraw()
-        messagebox.showinfo(
+        # Plutôt que de renvoyer l'utilisateur chercher une fenêtre qu'il ne
+        # voit pas — l'outil tourne sous pythonw.exe, sans console — on propose
+        # de fermer l'instance en place et de repartir.
+        dialog = tk.Tk()
+        dialog.withdraw()
+        pid = running_instance_pid()
+        close_it = messagebox.askyesno(
             "OCR Screen Translator",
-            "The tool is already running.\n\n"
-            "Press F8 in the running instance to quit it, then start again.")
-        warning.destroy()
-        raise SystemExit(0)
+            "The tool is already running%s.\n\n"
+            "Close it and start a new one?\n\n"
+            "(You can also press F8 in the running instance to quit it.)"
+            % ("" if pid is None else " (process %d)" % pid))
+        if not close_it or pid is None or not terminate_instance(pid):
+            if close_it and pid is not None:
+                messagebox.showerror(
+                    "OCR Screen Translator",
+                    "Could not close the running instance (process %d)." % pid)
+            dialog.destroy()
+            raise SystemExit(0)
+        dialog.destroy()
 
     choice = ask_languages()
     if choice is None:
