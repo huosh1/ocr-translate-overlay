@@ -35,7 +35,10 @@ rectangle follows. Release `Ctrl` + `Alt` and the capture starts.
 No clicking is involved at any point, so clicks keep going to whatever is
 underneath: you can still turn pages or follow links while the tool is running.
 
-`ESC` closes the overlays, `F8` quits.
+`ESC` closes the overlays, `F8` quits. Both are also in the **tray icon menu**,
+next to the clock — the tool runs without a window of its own, so that icon is
+the only visible sign it is there, and the only way to stop it without knowing
+the shortcut. Its tooltip shows the language pair in use.
 
 Nothing happens if the mouse barely moved, or if the rectangle ends up smaller
 than 18 pixels a side — that keeps stray `AltGr` presses on an AZERTY keyboard

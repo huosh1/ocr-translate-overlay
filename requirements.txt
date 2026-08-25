@@ -27,3 +27,6 @@ pynput>=1.7.6
 
 # --- fenetre d'overlay ---
 customtkinter>=5.2.0
+
+# --- icone de barre d'etat (quitter sans chercher le raccourci) ---
+pystray>=0.19.5

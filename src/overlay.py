@@ -44,6 +44,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 import panels
+import tray
 from panels import TranslationPanel, GrammarPanel
 
 # KoNLPy import avec message d'erreur clair
@@ -607,6 +608,7 @@ class App:
 
         self.translation_overlay = None
         self.grammar_overlay = None
+        self.tray_icon = None
 
         # Pré-charger Okt en arrière-plan évite le délai au premier usage, mais
         # démarre une JVM de plusieurs centaines de mégaoctets. On ne le fait
@@ -621,6 +623,14 @@ class App:
     def run(self):
         self.k_listener.start()
         self.m_listener.start()
+
+        # Les entrees du menu sont appelees depuis le thread de l'icone : elles
+        # repassent par la boucle Tk, comme F8.
+        self.tray_icon = tray.start_tray(
+            on_quit=lambda: self.root.after(0, self.quit),
+            on_close_overlays=lambda: self.root.after(0, self._close_overlays),
+            subtitle=SESSION.label())
+
         self.root.protocol("WM_DELETE_WINDOW", self.quit)
         self.root.mainloop()
         # La boucle est sortie : on ne laisse aucun écouteur derrière, puis on
