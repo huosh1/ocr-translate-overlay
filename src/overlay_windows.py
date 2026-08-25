@@ -1,14 +1,14 @@
 """
 Option B (Windows) — Version simplifiée (SELECTION RECTANGLE ONLY)
 
-✅ Fonctionnement :
-- Maintiens Ctrl + Alt
-- Clic gauche maintenu + drag : dessine un rectangle
-- Relâche : OCR de la zone + traduction FR + overlay
+✅ Fonctionnement (clavier seul, aucun clic) :
+- Maintiens Ctrl + Alt : le coin du rectangle est ancré là où se trouve la souris
+- Déplace la souris, toujours en maintenant : le rectangle se dessine
+- Relâche Ctrl + Alt : OCR de la zone + traduction FR + overlay
 
 ❌ Retiré :
 - hover (mot sous souris)
-- clic gauche simple (sans drag)
+- toute utilisation du clic : les clics vont à l'application du dessous
 
 Touches :
 - ESC : ferme l’overlay
@@ -41,10 +41,12 @@ import customtkinter as ctk
 # ======================
 # TESSERACT CONFIG
 # ======================
-TESSERACT_PATH = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-if not os.path.exists(TESSERACT_PATH):
-    raise RuntimeError("Tesseract introuvable : " + TESSERACT_PATH)
-pytesseract.pytesseract.tesseract_cmd = TESSERACT_PATH
+# Chemin resolu automatiquement (PATH, emplacements habituels, registre) et
+# langues verifiees au demarrage : voir tesseract_setup.py. Pour imposer un
+# chemin, definir la variable d'environnement TESSERACT_PATH.
+from tesseract_setup import configure_tesseract
+
+TESSERACT_PATH = configure_tesseract(("eng",))
 
 
 # ======================
@@ -324,14 +326,19 @@ class App:
         self.ctrl_down = False
         self.alt_down = False
 
-        self.dragging = False
-        self.drag_start = None
-        self.drag_moved = False
+        # Selection au clavier seul : Ctrl+Alt ancre le premier coin a la
+        # position courante de la souris, le deplacement trace le rectangle,
+        # le relachement de la combinaison valide. Aucun clic n'intervient,
+        # les clics restent donc disponibles pour l'application du dessous.
+        self.armed = False
+        self.anchor = (0, 0)
+        self.band_shown = False
+        self.mouse_ctl = mouse.Controller()
 
         self.big_overlay = None
 
         self.k_listener = keyboard.Listener(on_press=self.on_key_press, on_release=self.on_key_release)
-        self.m_listener = mouse.Listener(on_move=self.on_move, on_click=self.on_click)
+        self.m_listener = mouse.Listener(on_move=self.on_move)
 
     def run(self):
         self.k_listener.start()
@@ -361,58 +368,71 @@ class App:
             self.alt_down = True
         elif key == keyboard.Key.f8:
             self.quit()
+            return
+        else:
+            return
+        self._arm()
 
     def on_key_release(self, key):
         if key in (keyboard.Key.ctrl_l, keyboard.Key.ctrl_r):
             self.ctrl_down = False
         elif key in (keyboard.Key.alt_l, keyboard.Key.alt_r):
             self.alt_down = False
+        else:
+            return
+        # La combinaison vient d'etre rompue : c'est la validation.
+        if self.armed and not self.hover_enabled():
+            self._finish_selection()
+
+    def _arm(self):
+        """Ancre le premier coin quand Ctrl+Alt devient complet.
+
+        on_key_press se repete tant qu'une touche est maintenue : le garde
+        self.armed fait qu'on n'ancre qu'a la transition, sinon le coin
+        suivrait la souris au lieu de rester fixe.
+        """
+        if self.armed or not self.hover_enabled():
+            return
+        self.armed = True
+        self.band_shown = False
+        pos = self.mouse_ctl.position
+        self.anchor = (int(pos[0]), int(pos[1]))
+
+    def _finish_selection(self):
+        self.armed = False
+        if not self.band_shown:
+            return
+        self.band_shown = False
+
+        left, top, right, bottom = self.rubber.rect()
+        self.rubber.stop()
+
+        if (right - left) < 18 or (bottom - top) < 18:
+            return
+
+        threading.Thread(
+            target=self._ocr_translate_show,
+            args=(left, top, right, bottom),
+            daemon=True,
+        ).start()
 
     # ---- mouse ----
     def on_move(self, x, y):
-        if self.dragging and self.drag_moved:
-            self.rubber.move(int(x), int(y))
-        elif self.dragging:
-            # start showing rectangle after small move threshold
-            dx = abs(int(x) - self.drag_start[0])
-            dy = abs(int(y) - self.drag_start[1])
-            if dx + dy > 6:
-                self.drag_moved = True
-                self.rubber.start(self.drag_start[0], self.drag_start[1])
-                self.rubber.move(int(x), int(y))
-
-    def on_click(self, x, y, button, pressed):
-        if button != mouse.Button.left:
+        if not self.armed:
             return
-        if not self.hover_enabled():
-            return
-
         x, y = int(x), int(y)
 
-        if pressed:
-            self.dragging = True
-            self.drag_start = (x, y)
-            self.drag_moved = False
-        else:
-            if not self.dragging:
-                return
+        if self.band_shown:
+            self.rubber.move(x, y)
+            return
 
-            self.dragging = False
-            if not self.drag_moved:
-                # no drag => ignore (we removed simple click)
-                return
-
-            left, top, right, bottom = self.rubber.rect()
-            self.rubber.stop()
-
-            if (right - left) < 18 or (bottom - top) < 18:
-                return
-
-            threading.Thread(
-                target=self._ocr_translate_show,
-                args=(left, top, right, bottom),
-                daemon=True,
-            ).start()
+        # Rien ne s'affiche tant que la souris n'a pas bouge nettement : sur
+        # clavier AZERTY, AltGr est envoye comme Ctrl+Alt, et on ne veut pas
+        # faire clignoter un rectangle a chaque @, # ou € tape.
+        if abs(x - self.anchor[0]) + abs(y - self.anchor[1]) > 6:
+            self.band_shown = True
+            self.rubber.start(self.anchor[0], self.anchor[1])
+            self.rubber.move(x, y)
 
     # ---- capture + ocr ----
     def _safe_grab(self, left, top, right, bottom) -> Image.Image:

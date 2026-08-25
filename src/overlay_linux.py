@@ -6,6 +6,12 @@ import pytesseract
 from PIL import Image
 import tkinter as tk
 
+# Chemin resolu automatiquement et langues verifiees au demarrage :
+# voir tesseract_setup.py.
+from tesseract_setup import configure_tesseract
+
+configure_tesseract(("eng",))
+
 
 # ======================
 # OCR + TRANSLATION

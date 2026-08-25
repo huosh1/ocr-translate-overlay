@@ -1,0 +1,18 @@
+# environnements virtuels
+venv/
+.venv/
+env/
+
+# modeles de langue Tesseract, telecharges par scripts/install_windows.ps1
+# (plusieurs Mo chacun, ils n'ont rien a faire dans le depot)
+tessdata/
+
+# caches Python
+__pycache__/
+*.py[cod]
+
+# editeurs et OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

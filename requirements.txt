@@ -1,0 +1,29 @@
+# OCR Screen Translator (EN -> FR) — dependances Python
+#
+#   python -m venv venv
+#   .\venv\Scripts\activate
+#   pip install -r requirements.txt
+#
+# Prerequis hors pip :
+#   - Tesseract OCR (obligatoire) : https://github.com/UB-Mannheim/tesseract/wiki
+#     chemin attendu par les scripts : C:\Program Files\Tesseract-OCR\tesseract.exe
+#     (sinon, corriger TESSERACT_PATH en tete de src/overlay_windows.py ou src/overlay_windows_korean.py)
+#   - tkinter : livre avec l'installateur Python officiel sous Windows, rien a faire
+#
+# Pour la coloration grammaticale coreenne de src/overlay_windows_korean.py, voir requirements-korean.txt
+
+# --- capture d'ecran et traitement d'image ---
+mss>=9.0.1
+pillow>=10.0.0
+
+# --- OCR : binding Python qui pilote l'executable Tesseract ---
+pytesseract>=0.3.10
+
+# --- traduction via l'API publique MyMemory ---
+requests>=2.31.0
+
+# --- raccourcis clavier et selection souris globaux ---
+pynput>=1.7.6
+
+# --- fenetre d'overlay ---
+customtkinter>=5.2.0
