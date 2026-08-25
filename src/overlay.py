@@ -1,35 +1,28 @@
-"""
-Option B (Windows) — OCR + Traduction FR + Analyse grammaticale coréenne
+"""OCR Screen Translator — traduire du texte non sélectionnable à l'écran.
 
-✅ Fonctionnement (clavier seul, aucun clic) :
-- Maintiens Ctrl + Alt : le coin du rectangle est ancré là où se trouve la souris
-- Déplace la souris, toujours en maintenant : le rectangle se dessine
-- Relâche Ctrl + Alt : OCR de la zone + traduction FR + overlay traduction
-  + overlay grammatical
+Au lancement, une fenêtre demande quelle langue lire et vers laquelle traduire.
+Tout le reste en découle : le modèle passé à Tesseract, le couple de codes
+envoyé à MyMemory, et la présence ou non du panneau grammatical.
 
-Overlays :
-  1. Overlay TRADUCTION  : texte traduit en français (coin haut droit)
-  2. Overlay GRAMMAIRE   : la phrase coréenne entière, remise dans l'ordre et
-                           colorée selon la nature de chaque mot, puis le détail
-                           mot par mot en dessous
+Sélection, sans aucun clic :
+  - maintenir Ctrl + Alt ancre un coin à la position de la souris
+  - déplacer la souris trace le rectangle
+  - relâcher la combinaison déclenche la capture
 
-Couleurs par nature grammaticale :
-  Verbe        → #E07B54 (orange)
-  Nom          → #5B9BD5 (bleu)
-  Adjectif     → #6DBF82 (vert)
-  Adverbe      → #C98FD4 (violet)
-  Pronom       → #F0C040 (jaune)
-  Particule    → #8FBCBB (cyan)
-  Autre        → #AAAAAA (gris)
+Les clics ne sont jamais interceptés : ils continuent d'aller à l'application
+du dessous, on peut donc tourner les pages en lisant.
 
-Touches :
-- ESC : ferme les overlays
-- F8  : quitte le programme
+Panneaux :
+  1. TRANSLATION : le texte traduit
+  2. GRAMMAR     : pour une langue qui a un analyseur — le coréen aujourd'hui —
+                   la phrase entière remise dans l'ordre et colorée selon la
+                   nature de chaque mot, puis le détail mot par mot
 
-Dépendances:
-    pip install -r requirements-korean.txt
-+ Installer Tesseract (Windows) et vérifier TESSERACT_PATH.
-+ Installer Java (requis par KoNLPy) : https://www.java.com/fr/download/
+Touches : ESC ferme les panneaux, F8 quitte.
+
+Dépendances : pip install -r requirements.txt
+              (ou requirements-korean.txt pour l'analyse grammaticale)
+Installation complète, Tesseract compris : scripts/install_windows.bat
 """
 
 import os
@@ -66,6 +59,7 @@ except ImportError:
 # voir tesseract_setup.py. Aucune langue n'est exigee ici — c'est le choix fait
 # au demarrage qui la determine, et le selecteur ne propose que les modeles
 # reellement installes.
+import tesseract_setup
 from tesseract_setup import configure_tesseract
 
 TESSERACT_PATH = configure_tesseract(())
@@ -79,25 +73,25 @@ TESSERACT_PATH = configure_tesseract(())
 # l'ISO 639-1 sur deux.
 LANGUAGES = {
     "eng":     ("English", "en"),
-    "fra":     ("Français", "fr"),
-    "kor":     ("한국어 — coréen", "ko"),
-    "jpn":     ("日本語 — japonais", "ja"),
-    "chi_sim": ("中文 — chinois simplifié", "zh-CN"),
-    "chi_tra": ("中文 — chinois traditionnel", "zh-TW"),
-    "spa":     ("Español", "es"),
-    "deu":     ("Deutsch", "de"),
-    "ita":     ("Italiano", "it"),
-    "por":     ("Português", "pt"),
-    "rus":     ("Русский", "ru"),
-    "nld":     ("Nederlands", "nl"),
-    "ara":     ("العربية — arabe", "ar"),
-    "hin":     ("हिन्दी — hindi", "hi"),
-    "tur":     ("Türkçe", "tr"),
-    "vie":     ("Tiếng Việt", "vi"),
-    "tha":     ("ไทย — thaï", "th"),
-    "pol":     ("Polski", "pl"),
-    "swe":     ("Svenska", "sv"),
-    "ell":     ("Ελληνικά — grec", "el"),
+    "fra":     ("Français — French", "fr"),
+    "kor":     ("한국어 — Korean", "ko"),
+    "jpn":     ("日本語 — Japanese", "ja"),
+    "chi_sim": ("中文 — Chinese, simplified", "zh-CN"),
+    "chi_tra": ("中文 — Chinese, traditional", "zh-TW"),
+    "spa":     ("Español — Spanish", "es"),
+    "deu":     ("Deutsch — German", "de"),
+    "ita":     ("Italiano — Italian", "it"),
+    "por":     ("Português — Portuguese", "pt"),
+    "rus":     ("Русский — Russian", "ru"),
+    "nld":     ("Nederlands — Dutch", "nl"),
+    "ara":     ("العربية — Arabic", "ar"),
+    "hin":     ("हिन्दी — Hindi", "hi"),
+    "tur":     ("Türkçe — Turkish", "tr"),
+    "vie":     ("Tiếng Việt — Vietnamese", "vi"),
+    "tha":     ("ไทย — Thai", "th"),
+    "pol":     ("Polski — Polish", "pl"),
+    "swe":     ("Svenska — Swedish", "sv"),
+    "ell":     ("Ελληνικά — Greek", "el"),
 }
 
 # Langues dont on sait analyser la grammaire. Une seule pour l'instant, mais le
@@ -128,7 +122,7 @@ def available_ocr_languages():
 class Session:
     """Couple de langues choisi au démarrage."""
 
-    def __init__(self, source="eng", target="fr"):
+    def __init__(self, source="eng", target="en"):
         self.source = source
         self.target = target
 
@@ -165,28 +159,33 @@ SESSION = Session()
 # ======================
 # COULEURS GRAMMATICALES
 # ======================
-# Tags Okt → couleur + label français
+# Tag Okt → couleur + libellé affiché.
+#
 # Encres colorées sur papier crème, façon annotation à la main : des teintes
 # sombres et rabattues, jamais des couleurs d'écran. Elles doivent rester
 # lisibles sur #efe6d8, ce qui exclut tout ce qui est clair ou fluo.
+#
+# Libellés en anglais comme le reste de l'interface. Pour repasser en français,
+# c'est ici et nulle part ailleurs : la légende du panneau est construite à
+# partir de cette table.
 POS_STYLES = {
-    "Verb":           {"color": "#9c4221", "label": "Verbe"},
-    "Adjective":      {"color": "#3f6b45", "label": "Adjectif"},
-    "Noun":           {"color": "#2f5d8a", "label": "Nom"},
-    "ProperNoun":     {"color": "#274c72", "label": "Nom propre"},
-    "Pronoun":        {"color": "#8a6516", "label": "Pronom"},
-    "Adverb":         {"color": "#6b4a7a", "label": "Adverbe"},
-    "Josa":           {"color": "#2b6b66", "label": "Particule"},
-    "Eomi":           {"color": "#8a5a2b", "label": "Terminaison"},
-    "Conjunction":    {"color": "#7a4560", "label": "Conjonction"},
-    "Determiner":     {"color": "#4f6b3f", "label": "Déterminant"},
-    "Number":         {"color": "#7d6420", "label": "Nombre"},
-    "Foreign":        {"color": "#5f5850", "label": "Étranger"},
-    "Alpha":          {"color": "#5f5850", "label": "Alphabet"},
-    "Punctuation":    {"color": "#a89d8c", "label": "Ponctuation"},
-    "Unknown":        {"color": "#7a7167", "label": "Inconnu"},
+    "Verb":           {"color": "#9c4221", "label": "Verb"},
+    "Adjective":      {"color": "#3f6b45", "label": "Adjective"},
+    "Noun":           {"color": "#2f5d8a", "label": "Noun"},
+    "ProperNoun":     {"color": "#274c72", "label": "Proper noun"},
+    "Pronoun":        {"color": "#8a6516", "label": "Pronoun"},
+    "Adverb":         {"color": "#6b4a7a", "label": "Adverb"},
+    "Josa":           {"color": "#2b6b66", "label": "Particle"},
+    "Eomi":           {"color": "#8a5a2b", "label": "Ending"},
+    "Conjunction":    {"color": "#7a4560", "label": "Conjunction"},
+    "Determiner":     {"color": "#4f6b3f", "label": "Determiner"},
+    "Number":         {"color": "#7d6420", "label": "Number"},
+    "Foreign":        {"color": "#5f5850", "label": "Foreign"},
+    "Alpha":          {"color": "#5f5850", "label": "Latin"},
+    "Punctuation":    {"color": "#a89d8c", "label": "Punctuation"},
+    "Unknown":        {"color": "#7a7167", "label": "Unknown"},
 }
-DEFAULT_STYLE = {"color": "#5f5850", "label": "Autre"}
+DEFAULT_STYLE = {"color": "#5f5850", "label": "Other"}
 
 
 # ======================
@@ -698,21 +697,30 @@ class App:
 # MAIN
 # ======================
 def ask_languages():
-    """Fenêtre de démarrage : de quelle langue vers quelle langue.
+    """Startup window: which language to read, which one to translate into.
 
-    Renvoie (source, cible) ou None si l'utilisateur referme sans choisir.
-    Cette fenêtre a sa propre racine Tk, détruite avant que l'overlay ne crée
-    la sienne : deux racines vivantes en même temps dans un seul processus se
-    marchent dessus.
+    Returns (source, target), or None if the window is closed without a choice.
+    It owns its own Tk root, destroyed before the overlay builds its own: two
+    live roots in a single process interfere with each other.
+
+    Languages that are not installed are still listed, and picking one offers
+    to fetch its model. Hiding them would leave the user guessing why their
+    language is absent.
     """
-    codes = available_ocr_languages()
+    installed = set(available_ocr_languages())
+
+    # Installed first, then the rest — the common case stays at the top of the
+    # list, while everything remains reachable.
+    codes = [c for c in LANGUAGES if c in installed]
+    codes += [c for c in LANGUAGES if c not in installed]
+    codes += sorted(c for c in installed if c not in LANGUAGES)
 
     remembered = (panels.load_setting("languages") or "").split(">")
     source = remembered[0] if len(remembered) == 2 and remembered[0] in codes else codes[0]
-    target = remembered[1] if len(remembered) == 2 else "fr"
+    target = remembered[1] if len(remembered) == 2 else "en"
 
-    # Les cibles ne dépendent pas de Tesseract : traduire ne demande aucun
-    # modèle local, seule la lecture en exige un.
+    # Targets do not depend on Tesseract: translating needs no local model,
+    # only reading does.
     targets, seen = [], set()
     for name, code in LANGUAGES.values():
         if code not in seen:
@@ -720,8 +728,9 @@ def ask_languages():
             targets.append((name, code))
     targets.sort(key=lambda item: item[0].lower())
 
-    def source_name(code):
-        return LANGUAGES.get(code, (code + "  (modèle installé)", ""))[0]
+    def entry(code):
+        name = LANGUAGES.get(code, (code, ""))[0]
+        return name if code in installed else name + "   — not installed"
 
     root = tk.Tk()
     root.title("OCR Screen Translator")
@@ -731,51 +740,104 @@ def ask_languages():
     frame = tk.Frame(root, bg=panels.PAPER_HEX, padx=26, pady=22)
     frame.pack(fill="both", expand=True)
 
-    tk.Label(frame, text="Quelles langues ?", bg=panels.PAPER_HEX,
+    tk.Label(frame, text="Which languages?", bg=panels.PAPER_HEX,
              fg=panels.TEXT, font=(panels.UI_FACE, 15)).grid(
-        row=0, column=0, columnspan=2, sticky="w", pady=(0, 2))
+        row=0, column=0, columnspan=2, sticky="w")
     hint = tk.Label(frame, text="", bg=panels.PAPER_HEX, fg=panels.MUTED,
-                    font=(panels.UI_FACE, 9), justify="left")
-    hint.grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 16))
+                    font=(panels.UI_FACE, 9), justify="left", anchor="w")
+    hint.grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 16))
 
-    tk.Label(frame, text="Lire", bg=panels.PAPER_HEX, fg=panels.MUTED,
+    tk.Label(frame, text="Read", bg=panels.PAPER_HEX, fg=panels.MUTED,
              font=(panels.UI_FACE, 10)).grid(row=2, column=0, sticky="w")
-    src_box = ttk.Combobox(frame, state="readonly", width=30,
-                           values=[source_name(c) for c in codes])
+    src_box = ttk.Combobox(frame, state="readonly", width=34,
+                           values=[entry(c) for c in codes])
     src_box.grid(row=2, column=1, sticky="ew", padx=(14, 0), pady=4)
     src_box.current(codes.index(source))
 
-    tk.Label(frame, text="Traduire vers", bg=panels.PAPER_HEX, fg=panels.MUTED,
+    tk.Label(frame, text="Translate into", bg=panels.PAPER_HEX, fg=panels.MUTED,
              font=(panels.UI_FACE, 10)).grid(row=3, column=0, sticky="w")
-    dst_box = ttk.Combobox(frame, state="readonly", width=30,
+    dst_box = ttk.Combobox(frame, state="readonly", width=34,
                            values=[name for name, _ in targets])
     dst_box.grid(row=3, column=1, sticky="ew", padx=(14, 0), pady=4)
     dst_box.current(next((i for i, (_, c) in enumerate(targets) if c == target), 0))
 
+    start_btn = tk.Button(frame, text="Start", relief="flat",
+                          bg="#e0d3bc", fg=panels.TEXT, activebackground="#d5c6ae",
+                          font=(panels.UI_FACE, 10), padx=18, pady=6)
+    start_btn.grid(row=4, column=0, columnspan=2, sticky="e", pady=(18, 0))
+
     def refresh_hint(_event=None):
         code = codes[src_box.current()]
-        if code in GRAMMAR_LANGUAGES and KONLPY_AVAILABLE:
-            hint.configure(text="Analyse grammaticale disponible pour cette langue.")
+        if code not in installed:
+            hint.configure(text="Model not installed — it will be downloaded (a few MB).")
+        elif code in GRAMMAR_LANGUAGES and KONLPY_AVAILABLE:
+            hint.configure(text="Grammar analysis available for this language.")
         elif code in GRAMMAR_LANGUAGES:
-            hint.configure(text="Analyse grammaticale indisponible : konlpy ou Java manquant.")
+            hint.configure(text="Grammar analysis unavailable: konlpy or Java missing.")
         else:
-            hint.configure(text="Traduction seule pour cette langue.")
+            hint.configure(text="Translation only for this language.")
 
     src_box.bind("<<ComboboxSelected>>", refresh_hint)
     refresh_hint()
 
     result = {}
 
-    def start(_event=None):
-        result["source"] = codes[src_box.current()]
+    def finish(code):
+        result["source"] = code
         result["target"] = targets[dst_box.current()][1]
         root.destroy()
 
-    tk.Button(frame, text="Commencer", command=start, relief="flat",
-              bg="#e0d3bc", fg=panels.TEXT, activebackground="#d5c6ae",
-              font=(panels.UI_FACE, 10), padx=18, pady=6).grid(
-        row=4, column=0, columnspan=2, sticky="e", pady=(18, 0))
+    def install_then_finish(code):
+        """Fetch the missing model, then start.
 
+        English is fetched alongside it: once a local tessdata directory is in
+        play it becomes the only one Tesseract reads, so it has to hold every
+        language the tool uses — and English is always the OCR fallback.
+        """
+        # Le test porte sur le tessdata du dépôt et non sur le système : une
+        # fois TESSDATA_PREFIX pointé dessus, c'est le seul dossier que
+        # Tesseract lit, donc l'anglais du système n'y servirait plus.
+        needed = [code]
+        if not os.path.isfile(
+                os.path.join(tesseract_setup.LOCAL_TESSDATA, "eng.traineddata")):
+            needed.append("eng")
+
+        def report(text):
+            root.after(0, lambda: hint.configure(text=text))
+
+        def work():
+            try:
+                for lang in needed:
+                    name = LANGUAGES.get(lang, (lang, ""))[0]
+
+                    def progress(done, total, name=name):
+                        if total:
+                            report("Downloading %s: %.1f / %.1f MB"
+                                   % (name, done / 1048576.0, total / 1048576.0))
+                        else:
+                            report("Downloading %s: %.1f MB" % (name, done / 1048576.0))
+
+                    tesseract_setup.download_language(lang, progress)
+            except Exception as exc:
+                report("Download failed: %s" % exc)
+                root.after(0, lambda: start_btn.configure(state="normal"))
+                return
+
+            os.environ["TESSDATA_PREFIX"] = tesseract_setup.LOCAL_TESSDATA
+            del _ocr_langs_cache[:]
+            root.after(0, lambda: finish(code))
+
+        start_btn.configure(state="disabled")
+        threading.Thread(target=work, daemon=True).start()
+
+    def start(_event=None):
+        code = codes[src_box.current()]
+        if code in installed:
+            finish(code)
+        else:
+            install_then_finish(code)
+
+    start_btn.configure(command=start)
     root.bind("<Return>", start)
     root.bind("<Escape>", lambda e: root.destroy())
 

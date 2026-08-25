@@ -26,6 +26,57 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # scripts/install_windows.ps1. Prioritaires sur celles du systeme.
 LOCAL_TESSDATA = os.path.join(REPO_ROOT, "tessdata")
 
+# tessdata_best : le jeu le plus precis. Plus lourd et plus lent que
+# tessdata_fast, mais c'est le bon compromis sur du texte dense.
+TESSDATA_URL = "https://github.com/tesseract-ocr/tessdata_best/raw/main/%s.traineddata"
+
+
+def language_installed(code):
+    path = os.path.join(LOCAL_TESSDATA, code + ".traineddata")
+    if os.path.isfile(path) and os.path.getsize(path) > 500000:
+        return True
+    try:
+        return code in set(pytesseract.get_languages(config=""))
+    except Exception:
+        return False
+
+
+def download_language(code, on_progress=None):
+    """Installe un modele de langue dans le tessdata du depot.
+
+    On ecrit d'abord dans un fichier .part : une coupure de reseau laisserait
+    sinon un modele tronque, que Tesseract chargerait sans rien dire de clair.
+    Ecrit dans le depot et non dans Program Files, donc sans elevation.
+    """
+    import urllib.request
+
+    os.makedirs(LOCAL_TESSDATA, exist_ok=True)
+    dest = os.path.join(LOCAL_TESSDATA, code + ".traineddata")
+    partial = dest + ".part"
+
+    try:
+        with urllib.request.urlopen(TESSDATA_URL % code, timeout=60) as response:
+            total = int(response.headers.get("Content-Length") or 0)
+            done = 0
+            with open(partial, "wb") as out:
+                while True:
+                    chunk = response.read(65536)
+                    if not chunk:
+                        break
+                    out.write(chunk)
+                    done += len(chunk)
+                    if on_progress:
+                        on_progress(done, total)
+        os.replace(partial, dest)
+    except Exception:
+        if os.path.exists(partial):
+            try:
+                os.remove(partial)
+            except OSError:
+                pass
+        raise
+    return dest
+
 _WINDOWS_CANDIDATES = (
     r"C:\Program Files\Tesseract-OCR\tesseract.exe",
     r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",

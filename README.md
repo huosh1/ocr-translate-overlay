@@ -8,13 +8,18 @@ When the source language is Korean it goes further: alongside the translation it
 reprints the original sentence, colour-coded by part of speech, and lists every
 word with its grammatical nature and its meaning.
 
-https://github.com/zixload/ocr-translate-overlay/blob/main/docs/demo.mp4
+![Demo](docs/demo.gif)
+
+<sub>The same clip in full quality: [docs/demo.mp4](docs/demo.mp4)</sub>
 
 ## How to use it
 
 Launch it and pick your languages — which one to read, which one to translate
-into. The picker only offers languages Tesseract can actually read on this
-machine, and it remembers your last choice.
+into. It remembers your last choice.
+
+Languages whose OCR model is not installed yet are listed too, marked as such;
+picking one downloads its model (a few MB) and then starts. Nothing to install
+by hand, and nothing hidden from you either.
 
 Then hold **`Ctrl` + `Alt`**. The first corner of the selection is anchored
 wherever the mouse cursor happens to be. Keep holding, move the mouse — the
@@ -133,15 +138,16 @@ it up on the next launch with no configuration.
 `TESSERACT_PATH` environment variable at your `tesseract.exe`. The script also
 looks in the `PATH`, in the usual install directories, and in the registry.
 
-**A language is missing from the picker** — its model is not installed. Run
-`.\scripts\install_windows.ps1 -Korean`, or drop the `.traineddata` into
-`tessdata/` yourself.
+**A language shows as "not installed"** — pick it anyway and its model is
+downloaded on the spot, into `tessdata/` at the repository root. No admin
+rights, no separate step.
 
-This is why the picker is built from what is installed rather than from a fixed
-list. When a model is missing, Tesseract prints `Failed loading language` to
-stderr, then carries on with the remaining languages and exits with status 0.
-Nothing surfaces the failure: Hangul gets read as Latin letters and you receive
-fluent nonsense. Offering only what exists removes the trap entirely.
+The picker tracks what is actually installed for a reason. When a model is
+missing, Tesseract prints `Failed loading language` to stderr, then carries on
+with the remaining languages and exits with status 0. Nothing surfaces the
+failure: Hangul gets read as Latin letters and you receive fluent nonsense.
+Knowing which models exist — and fetching the missing one before starting —
+removes that trap instead of reporting it after the fact.
 
 **Nothing appears after a selection** — the OCR returned nothing, usually on text
 that is too small or too low-contrast. Try a tighter rectangle. Note too that

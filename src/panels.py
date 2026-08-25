@@ -530,7 +530,7 @@ class TranslationPanel(PanelWindow):
 
     def __init__(self, master, text, on_close=None):
         self._text = (text or "").strip() or "OCR vide"
-        super().__init__(master, "TRADUCTION", on_close=on_close)
+        super().__init__(master, "TRANSLATION", on_close=on_close)
         self.after(10, self.redraw)
 
     def _draw_body(self, width, height):
@@ -558,7 +558,7 @@ class GrammarPanel(PanelWindow):
         self._source = source_text or ""
         self._legend = list(legend or [])
         self._translations = {}
-        super().__init__(master, "ANALYSE GRAMMATICALE", on_close=on_close)
+        super().__init__(master, "GRAMMAR", on_close=on_close)
         self.after(10, self.redraw)
 
     def set_translations(self, mapping):
