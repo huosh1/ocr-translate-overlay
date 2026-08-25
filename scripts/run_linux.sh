@@ -13,4 +13,4 @@ if [ ! -x venv/bin/python3 ]; then
 fi
 
 source venv/bin/activate
-python3 src/overlay_linux.py
+python3 src/overlay.py

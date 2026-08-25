@@ -7,10 +7,10 @@
 # Prerequis hors pip :
 #   - Tesseract OCR (obligatoire) : https://github.com/UB-Mannheim/tesseract/wiki
 #     chemin attendu par les scripts : C:\Program Files\Tesseract-OCR\tesseract.exe
-#     (sinon, corriger TESSERACT_PATH en tete de src/overlay_windows.py ou src/overlay_windows_korean.py)
+#     (sinon, corriger TESSERACT_PATH en tete de src/overlay.py)
 #   - tkinter : livre avec l'installateur Python officiel sous Windows, rien a faire
 #
-# Pour la coloration grammaticale coreenne de src/overlay_windows_korean.py, voir requirements-korean.txt
+# Pour la coloration grammaticale coreenne de src/overlay.py, voir requirements-korean.txt
 
 # --- capture d'ecran et traitement d'image ---
 mss>=9.0.1

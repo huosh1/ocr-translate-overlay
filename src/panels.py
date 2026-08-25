@@ -277,6 +277,12 @@ def save_geometry(key, geometry):
             pass
 
 
+# Le magasin est un simple dictionnaire JSON : les préférences y logent aussi
+# bien que les géométries, une clé par réglage.
+load_setting = load_geometry
+save_setting = save_geometry
+
+
 # ======================
 # Panneau de base
 # ======================

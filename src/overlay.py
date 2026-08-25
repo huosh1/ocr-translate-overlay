@@ -46,7 +46,7 @@ import mss
 from pynput import keyboard, mouse
 
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 
 import panels
 from panels import TranslationPanel, GrammarPanel
@@ -62,13 +62,104 @@ except ImportError:
 # ======================
 # TESSERACT CONFIG
 # ======================
-# Chemin resolu automatiquement (PATH, emplacements habituels, registre) et
-# langues verifiees au demarrage : voir tesseract_setup.py. C'est ce qui evite
-# le cas ou kor.traineddata manque et ou Tesseract rend du charabia anglais
-# sans signaler d'erreur. Pour imposer un chemin, definir TESSERACT_PATH.
+# Chemin resolu automatiquement (PATH, emplacements habituels, registre) :
+# voir tesseract_setup.py. Aucune langue n'est exigee ici — c'est le choix fait
+# au demarrage qui la determine, et le selecteur ne propose que les modeles
+# reellement installes.
 from tesseract_setup import configure_tesseract
 
-TESSERACT_PATH = configure_tesseract(("kor", "eng"))
+TESSERACT_PATH = configure_tesseract(())
+
+
+# ======================
+# LANGUES
+# ======================
+# Code Tesseract -> (nom affiché, code MyMemory). Les deux nomenclatures ne se
+# recouvrent pas : Tesseract suit l'ISO 639-2 sur trois lettres, MyMemory
+# l'ISO 639-1 sur deux.
+LANGUAGES = {
+    "eng":     ("English", "en"),
+    "fra":     ("Français", "fr"),
+    "kor":     ("한국어 — coréen", "ko"),
+    "jpn":     ("日本語 — japonais", "ja"),
+    "chi_sim": ("中文 — chinois simplifié", "zh-CN"),
+    "chi_tra": ("中文 — chinois traditionnel", "zh-TW"),
+    "spa":     ("Español", "es"),
+    "deu":     ("Deutsch", "de"),
+    "ita":     ("Italiano", "it"),
+    "por":     ("Português", "pt"),
+    "rus":     ("Русский", "ru"),
+    "nld":     ("Nederlands", "nl"),
+    "ara":     ("العربية — arabe", "ar"),
+    "hin":     ("हिन्दी — hindi", "hi"),
+    "tur":     ("Türkçe", "tr"),
+    "vie":     ("Tiếng Việt", "vi"),
+    "tha":     ("ไทย — thaï", "th"),
+    "pol":     ("Polski", "pl"),
+    "swe":     ("Svenska", "sv"),
+    "ell":     ("Ελληνικά — grec", "el"),
+}
+
+# Langues dont on sait analyser la grammaire. Une seule pour l'instant, mais le
+# test porte sur cette table plutôt que sur "kor" écrit en dur.
+GRAMMAR_LANGUAGES = {"kor"}
+
+_ocr_langs_cache = []
+
+
+def available_ocr_languages():
+    """Modèles réellement installés dans Tesseract.
+
+    C'est ce qui rend le sélecteur honnête : il ne propose que ce que la
+    machine sait lire, plutôt que d'offrir une langue qui échouerait à l'OCR.
+    """
+    if not _ocr_langs_cache:
+        try:
+            found = set(pytesseract.get_languages(config=""))
+        except Exception:
+            found = {"eng"}
+        found.discard("osd")
+        ordered = [code for code in LANGUAGES if code in found]
+        ordered += sorted(code for code in found if code not in LANGUAGES)
+        _ocr_langs_cache.extend(ordered or ["eng"])
+    return _ocr_langs_cache
+
+
+class Session:
+    """Couple de langues choisi au démarrage."""
+
+    def __init__(self, source="eng", target="fr"):
+        self.source = source
+        self.target = target
+
+    @property
+    def ocr_lang(self):
+        """Langue passée à Tesseract.
+
+        L'anglais est ajouté en second quand la source ne l'est pas : un texte
+        réel mêle presque toujours quelques mots latins, noms propres ou
+        nombres, et Tesseract s'en tire mieux avec les deux modèles.
+        """
+        if self.source != "eng" and "eng" in available_ocr_languages():
+            return self.source + "+eng"
+        return self.source
+
+    @property
+    def langpair(self):
+        return "%s|%s" % (LANGUAGES.get(self.source, ("", "en"))[1], self.target)
+
+    @property
+    def has_grammar(self):
+        return self.source in GRAMMAR_LANGUAGES and KONLPY_AVAILABLE
+
+    def label(self):
+        source = LANGUAGES.get(self.source, (self.source, ""))[0]
+        target = next((name for name, code in LANGUAGES.values()
+                       if code == self.target), self.target)
+        return "%s → %s" % (source, target)
+
+
+SESSION = Session()
 
 
 # ======================
@@ -205,7 +296,7 @@ def translate_mymemory(text: str) -> str:
         return cached
     r = requests.get(
         "https://api.mymemory.translated.net/get",
-        params={"q": text, "langpair": "ko|fr"},
+        params={"q": text, "langpair": SESSION.langpair},
         timeout=20,
     )
     r.raise_for_status()
@@ -226,7 +317,7 @@ def preprocess_for_ocr(img: Image.Image) -> Image.Image:
 
 def ocr_text_block(img: Image.Image) -> str:
     config = "--oem 3 --psm 6"
-    text = pytesseract.image_to_string(img, lang="kor+eng", config=config)
+    text = pytesseract.image_to_string(img, lang=SESSION.ocr_lang, config=config)
     return cleanup(text)
 
 
@@ -511,8 +602,10 @@ class App:
             if not text_fr:
                 raise RuntimeError("Traduction vide (API MyMemory).")
 
-            # 3. Analyse grammaticale (locale, KoNLPy)
-            tokens = analyze_korean(raw_text)
+            # 3. Analyse grammaticale, seulement pour une langue qui en a une
+            # et si l'analyseur est disponible. Sinon on s'en tient à la
+            # traduction, et le second panneau ne s'ouvre pas.
+            tokens = analyze_korean(raw_text) if SESSION.has_grammar else []
 
             # 4. Affichage dans le thread principal
             legend = [(POS_STYLES[tag]["label"], POS_STYLES[tag]["color"])
@@ -604,11 +697,108 @@ class App:
 # ======================
 # MAIN
 # ======================
+def ask_languages():
+    """Fenêtre de démarrage : de quelle langue vers quelle langue.
+
+    Renvoie (source, cible) ou None si l'utilisateur referme sans choisir.
+    Cette fenêtre a sa propre racine Tk, détruite avant que l'overlay ne crée
+    la sienne : deux racines vivantes en même temps dans un seul processus se
+    marchent dessus.
+    """
+    codes = available_ocr_languages()
+
+    remembered = (panels.load_setting("languages") or "").split(">")
+    source = remembered[0] if len(remembered) == 2 and remembered[0] in codes else codes[0]
+    target = remembered[1] if len(remembered) == 2 else "fr"
+
+    # Les cibles ne dépendent pas de Tesseract : traduire ne demande aucun
+    # modèle local, seule la lecture en exige un.
+    targets, seen = [], set()
+    for name, code in LANGUAGES.values():
+        if code not in seen:
+            seen.add(code)
+            targets.append((name, code))
+    targets.sort(key=lambda item: item[0].lower())
+
+    def source_name(code):
+        return LANGUAGES.get(code, (code + "  (modèle installé)", ""))[0]
+
+    root = tk.Tk()
+    root.title("OCR Screen Translator")
+    root.configure(bg=panels.PAPER_HEX)
+    root.resizable(False, False)
+
+    frame = tk.Frame(root, bg=panels.PAPER_HEX, padx=26, pady=22)
+    frame.pack(fill="both", expand=True)
+
+    tk.Label(frame, text="Quelles langues ?", bg=panels.PAPER_HEX,
+             fg=panels.TEXT, font=(panels.UI_FACE, 15)).grid(
+        row=0, column=0, columnspan=2, sticky="w", pady=(0, 2))
+    hint = tk.Label(frame, text="", bg=panels.PAPER_HEX, fg=panels.MUTED,
+                    font=(panels.UI_FACE, 9), justify="left")
+    hint.grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 16))
+
+    tk.Label(frame, text="Lire", bg=panels.PAPER_HEX, fg=panels.MUTED,
+             font=(panels.UI_FACE, 10)).grid(row=2, column=0, sticky="w")
+    src_box = ttk.Combobox(frame, state="readonly", width=30,
+                           values=[source_name(c) for c in codes])
+    src_box.grid(row=2, column=1, sticky="ew", padx=(14, 0), pady=4)
+    src_box.current(codes.index(source))
+
+    tk.Label(frame, text="Traduire vers", bg=panels.PAPER_HEX, fg=panels.MUTED,
+             font=(panels.UI_FACE, 10)).grid(row=3, column=0, sticky="w")
+    dst_box = ttk.Combobox(frame, state="readonly", width=30,
+                           values=[name for name, _ in targets])
+    dst_box.grid(row=3, column=1, sticky="ew", padx=(14, 0), pady=4)
+    dst_box.current(next((i for i, (_, c) in enumerate(targets) if c == target), 0))
+
+    def refresh_hint(_event=None):
+        code = codes[src_box.current()]
+        if code in GRAMMAR_LANGUAGES and KONLPY_AVAILABLE:
+            hint.configure(text="Analyse grammaticale disponible pour cette langue.")
+        elif code in GRAMMAR_LANGUAGES:
+            hint.configure(text="Analyse grammaticale indisponible : konlpy ou Java manquant.")
+        else:
+            hint.configure(text="Traduction seule pour cette langue.")
+
+    src_box.bind("<<ComboboxSelected>>", refresh_hint)
+    refresh_hint()
+
+    result = {}
+
+    def start(_event=None):
+        result["source"] = codes[src_box.current()]
+        result["target"] = targets[dst_box.current()][1]
+        root.destroy()
+
+    tk.Button(frame, text="Commencer", command=start, relief="flat",
+              bg="#e0d3bc", fg=panels.TEXT, activebackground="#d5c6ae",
+              font=(panels.UI_FACE, 10), padx=18, pady=6).grid(
+        row=4, column=0, columnspan=2, sticky="e", pady=(18, 0))
+
+    root.bind("<Return>", start)
+    root.bind("<Escape>", lambda e: root.destroy())
+
+    root.update_idletasks()
+    root.geometry("+%d+%d" % (
+        (root.winfo_screenwidth() - root.winfo_width()) // 2,
+        (root.winfo_screenheight() - root.winfo_height()) // 3))
+    src_box.focus_set()
+    root.mainloop()
+
+    if not result:
+        return None
+    panels.save_setting("languages", "%s>%s" % (result["source"], result["target"]))
+    return result["source"], result["target"]
+
+
 if __name__ == "__main__":
-    if not KONLPY_AVAILABLE:
-        print("⚠️  KoNLPy non installé. L'analyse grammaticale sera désactivée.")
-        print("   Installez-le avec : pip install konlpy")
-        print("   Et Java : https://www.java.com/fr/download/\n")
+    choice = ask_languages()
+    if choice is None:
+        raise SystemExit(0)
+
+    SESSION.source, SESSION.target = choice
+    print("Session : %s   (OCR : %s)" % (SESSION.label(), SESSION.ocr_lang))
 
     try:
         App().run()

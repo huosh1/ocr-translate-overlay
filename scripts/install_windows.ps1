@@ -15,7 +15,7 @@
     Program Files : aucun droit administrateur n'est requis pour cette partie.
 
 .PARAMETER Korean
-    Ajoute le modele coreen et konlpy, requis par src/overlay_windows_korean.py.
+    Ajoute le modele coreen et konlpy, requis par src/overlay.py.
 
 .PARAMETER Check
     Diagnostic seul : affiche ce qui manque sans rien installer ni modifier.
@@ -253,8 +253,4 @@ if ($Korean) {
 }
 
 Write-Host "`nTout est pret. Lancez l'outil avec :" -ForegroundColor Green
-if ($Korean) {
-    Write-Host "    .\scripts\run_windows_korean.bat"
-} else {
-    Write-Host "    .\scripts\run_windows.bat"
-}
+Write-Host "    .\scripts\run.bat"

@@ -1,9 +1,9 @@
-# Extra facultatif : analyse morphologique coreenne (Okt) utilisee par src/overlay_windows_korean.py
+# Extra facultatif : analyse morphologique coreenne (Okt) utilisee par src/overlay.py
 # pour colorer les mots selon leur nature grammaticale.
 #
 #   pip install -r requirements-korean.txt
 #
-# overlay_windows_korean.py fonctionne sans : l'import est protege par un try/except et la
+# overlay.py fonctionne sans : l'import est protege par un try/except et la
 # coloration est simplement desactivee (KONLPY_AVAILABLE = False).
 #
 # Prerequis hors pip : un JDK (KoNLPy passe par Java via JPype1).

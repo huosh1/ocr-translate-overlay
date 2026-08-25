@@ -6,12 +6,10 @@ cd /d "%~dp0.."
 if not exist "venv\Scripts\pythonw.exe" (
     echo Environnement virtuel introuvable.
     echo Creez-le d'abord :
-    echo     python -m venv venv
-    echo     venv\Scripts\activate
-    echo     pip install -r requirements.txt
+    echo     scripts\install_windows.bat
     pause
     exit /b 1
 )
 
 rem pythonw.exe : pas de fenetre de terminal derriere l'overlay.
-start "" "venv\Scripts\pythonw.exe" "src\%~1"
+start "" "venv\Scripts\pythonw.exe" "src\overlay.py"
